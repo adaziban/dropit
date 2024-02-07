@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Custom File Explorer</title>
+   <style>
+    body {
+        font-family: Arial, sans-serif;
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+        display: flex;
+        height: 100vh;
+        background-color: #F5F5F5;
+    }
+
+    #navigation {
+        position: relative;
+        flex: 1;
+        border-right: 1px solid #ccc;
+        overflow: auto;
+        padding: 10px;
+        background-color: #F5F5F5;;
+    }
+
+    #returnButtonContainer {
+        position: fixed;
+        top: 10px;
+        right: 10px;
+        z-index: 999; /* Adjust the z-index as needed */
+    }
+
+    #editorContainer {
+        flex: 2;
+        display: flex;
+        flex-direction: column;
+        position: relative;
+        background-color: #F5F5F5;;
+    }
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            display: flex;
+            height: 100vh;
+            background-color: #F5F5F5;
+        }
+
+        #navigation {
+            flex: 1;
+            border-right: 1px solid #ccc;
+            overflow: auto;
+            padding: 10px;
+            background-color: #F5F5F5;;
+        }
+
+        #editorContainer {
+            flex: 2;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+            background-color: #F5F5F5;;
+        }
+
+        .action-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px;
+            background-color: #333300
+            color: #F5F5F5;;
+        }
+
+        .action-buttons {
+            display: flex;
+            gap: 10px;
+        }
+
+        .action-button {
+            padding: 10px;
+            font-size: 16px;
+            cursor: pointer;
+            border: none;
+            border-radius: 5px;
+        }
+
+        .file-text {
+            margin: 5px;
+            cursor: pointer;
+            display: block;
+            padding: 5px;
+            border-radius: 3px;
+            transition: background-color 0.3s;
+        }
+
+        .file-text:hover {
+            background-color: #e0e0e0;
+        }
+
+        .folder-icon::before {
+            content: '\1F4C1'; /* Unicode for folder icon */
+            margin-right: 5px;
+        }
+
+        .image-preview {
+            max-width: 100%;
+            max-height: 100%;
+            margin-top: 10px;
+            display: block;
+        }
+
+        .markdown-preview {
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            margin-top: 10px;
+            overflow-y: auto;
+            flex: 1;
+        }
+
+        .breadcrumb {
+            margin-bottom: 10px;
+            color: #F5F5F5;;
+        }
+
+        .breadcrumb-item {
+            cursor: pointer;
+            color: #1565c0;
+            margin-right: 5px;
+        }
+
+        .breadcrumb-item:hover {
+            text-decoration: underline;
+        }
+
+        .breadcrumb-item:last-child {
+            color: #F5F5F5;
+            cursor: default;
+        }
+    </style>
+    <!-- Include showdown.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/showdown/1.9.1/showdown.min.js"></script>
+</head>
+
+<body>
+<div id="navigation">
+    <div class="breadcrumb" id="breadcrumb"></div>
+    <button class="action-button" onclick="openFolder()" title="Choose Folder">
+        📂 Choose Folder
+    </button>
+</div>
+
+    <div id="editorContainer">
+        <div class="action-bar">
+            <div class="breadcrumb" id="breadcrumb"></div>
+            <div class="action-buttons">
+                <button class="action-button" onclick="saveFile()" title="Save File">
+                    💾 Save File
+                </button>
+                <button class="action-button" onclick="createNewFolder()" title="Create Folder">
+    				📁 Create Folder
+				</button>
+                <button class="action-button" onclick="createNewFile()" title="New File">
+                    📝 New File
+                </button>
+                <button class="action-button" onclick="deleteCurrentFile()" title="Delete File">
+                    🗑️ Delete File
+                </button>
+
+            </div>
+        </div>
+        <div id="previewContainer" class="markdown-preview" contenteditable="true"
+            oninput="updatePreview()" onpaste="handlePaste(event)"></div>
+    </div>
+
+    <script>
+    
+async function displayFilesAndFolders(dirHandle, indent = 0) {
+    navigation.innerHTML = '';
+    previewContainer.innerHTML = '';
+
+    const entries = await getEntries(dirHandle);
+
+    updateBreadcrumb();
+
+    // Create a button for the root folder if it's not the current folder
+    if (currentFolderHandle !== rootFolderHandle) {
+        const rootButton = createFileTextElement(rootFolderHandle.name, true);
+        rootButton.onclick = async () => {
+            currentFolderHandle = rootFolderHandle;
+            folderHistory.length = 1; // Reset folderHistory when navigating to the root
+            await displayFilesAndFolders(rootFolderHandle);
+        };
+        navigation.appendChild(rootButton);
+    }
+
+    for (const entry of entries) {
+        const entryText = createFileTextElement(entry.name, entry.kind === 'directory');
+        entryText.style.marginLeft = `${indent * 20}px`; // Adjust the indentation as needed
+
+        if (entry.kind === 'directory') {
+            entryText.onclick = async (event) => {
+                event.stopPropagation(); // Prevent the click event from propagating to the parent
+                currentFolderHandle = entry;
+                addToFolderHistory(entry);
+                await displayFilesAndFolders(entry, indent + 1);
+            };
+        } else {
+            entryText.onclick = async () => {
+                await openFile(entry);
+            };
+        }
+
+        navigation.appendChild(entryText);
+    }
+}
+
+    
+        const navigation = document.getElementById('navigation');
+        const previewContainer = document.getElementById('previewContainer');
+        let rootFolderHandle = null;
+        let currentFolderHandle = null;
+        let currentFileHandle = null;
+        const folderHistory = [];
+
+		function returnToPreviousFolder() {
+    if (folderHistory.length > 1) {
+        folderHistory.pop(); // Remove the current folder from history
+        const previousFolder = folderHistory.pop(); // Get the previous folder
+        currentFolderHandle = previousFolder;
+        displayFilesAndFolders(previousFolder);
+    }
+}
+
+        // Create a showdown converter instance
+        const converter = new showdown.Converter();
+
+        async function openFolder() {
+            try {
+                const selectedFolder = await window.showDirectoryPicker();
+
+                if (!rootFolderHandle) {
+                    rootFolderHandle = selectedFolder;
+                }
+
+                if (currentFolderHandle) {
+                    addToFolderHistory(currentFolderHandle);
+                }
+
+                currentFolderHandle = selectedFolder;
+                displayFilesAndFolders(currentFolderHandle);
+            } catch (err) {
+                console.error('Error opening folder:', err);
+            }
+        }
+
+function addToFolderHistory(folderHandle) {
+    const folderIndex = folderHistory.findIndex(item => item.name === folderHandle.name);
+
+    if (folderIndex !== -1) {
+        // If the folder is already in history, remove it and everything after
+        folderHistory.splice(folderIndex);
+    } else {
+        // Add the current folder to history if it's not already present
+        folderHistory.push(folderHandle);
+    }
+}
+
+
+async function displayFilesAndFolders(dirHandle) {
+    navigation.innerHTML = '';
+    previewContainer.innerHTML = '';
+
+    const entries = await getEntries(dirHandle);
+
+    updateBreadcrumb();
+
+    // Create a button for the root folder if it's not the current folder
+    if (currentFolderHandle !== rootFolderHandle) {
+        const rootButton = createFileTextElement(rootFolderHandle.name, true);
+        rootButton.onclick = async () => {
+            currentFolderHandle = rootFolderHandle;
+            await displayFilesAndFolders(rootFolderHandle);
+        };
+        navigation.appendChild(rootButton);
+    }
+
+
+    entries.forEach(entry => {
+        const entryText = createFileTextElement(entry.name, entry.kind === 'directory');
+        entryText.onclick = async () => {
+            if (entry.kind === 'directory') {
+                currentFolderHandle = entry;
+                addToFolderHistory(currentFolderHandle);
+                await displayFilesAndFolders(entry);
+            } else {
+                await openFile(entry);
+            }
+        };
+
+        navigation.appendChild(entryText);
+    });
+}
+
+
+        function createFileTextElement(name, isDirectory) {
+            const fileText = document.createElement('div');
+            fileText.textContent = name;
+            fileText.classList.add('file-text');
+            if (isDirectory) {
+                fileText.classList.add('folder-icon');
+            }
+            return fileText;
+        }
+
+        async function openFile(fileHandle) {
+            try {
+                const file = await fileHandle.getFile();
+
+                if (file.type.startsWith('image/')) {
+                    // Display image preview
+                    const imageUrl = URL.createObjectURL(file);
+                    const imagePreview = document.createElement('img');
+                    imagePreview.src = imageUrl;
+                    imagePreview.alt = file.name;
+                    imagePreview.classList.add('image-preview');
+                    clearPreviewContainer();
+                    previewContainer.appendChild(imagePreview);
+                } else {
+                    // Display text content in the preview container
+                    const content = await file.text();
+                    previewContainer.innerHTML = content;
+                }
+
+                currentFileHandle = fileHandle;
+            } catch (err) {
+                console.error('Error opening file:', err);
+            }
+        }
+
+        async function saveFile() {
+            if (currentFileHandle) {
+                try {
+                    const writable = await currentFileHandle.createWritable();
+                    await writable.write(previewContainer.innerHTML);
+                    await writable.close();
+                    alert('File saved successfully');
+                } catch (err) {
+                    console.error('Error saving file:', err);
+                    alert('Error saving file');
+                }
+            } else {
+                alert('No file selected to save.');
+            }
+        }
+
+        async function createNewFile() {
+            if (currentFolderHandle) {
+                try {
+                    const fileName = prompt('Enter the name of the new file:');
+
+                    if (fileName) {
+                        // Automatically append ".md" extension if not already present
+                        const newFileName = fileName.endsWith('.md') ? fileName : `${fileName}.md`;
+                        const newFileHandle = await currentFolderHandle.getFileHandle(newFileName, { create: true });
+                        const writable = await newFileHandle.createWritable();
+                        await writable.write(''); // You can add initial content if needed
+                        await writable.close();
+
+                        // Refresh the displayed files and folders
+                        await displayFilesAndFolders(currentFolderHandle);
+
+                        alert('File created successfully');
+                    } else {
+                        alert('File name cannot be empty.');
+                    }
+                } catch (err) {
+                    console.error('Error creating file:', err);
+                    alert('Error creating file');
+                }
+            } else {
+                alert('No folder selected to create the file.');
+            }
+        }
+        
+        async function createNewFolder() {
+    if (currentFolderHandle) {
+        try {
+            const folderName = prompt('Enter the name of the new folder:');
+
+            if (folderName) {
+                const newFolderHandle = await currentFolderHandle.getDirectoryHandle(folderName, { create: true });
+                // Refresh the displayed files and folders
+                await displayFilesAndFolders(currentFolderHandle);
+
+                alert('Folder created successfully');
+            } else {
+                alert('Folder name cannot be empty.');
+            }
+        } catch (err) {
+            console.error('Error creating folder:', err);
+            alert('Error creating folder');
+        }
+    } else {
+        alert('No folder selected to create the new folder.');
+    }
+}
+
+
+        async function deleteCurrentFile() {
+            if (currentFileHandle) {
+                try {
+                    await currentFileHandle.remove();
+                    // Refresh the displayed files and folders
+                    await displayFilesAndFolders(currentFolderHandle);
+                    alert('File deleted successfully');
+                    clearPreviewContainer();
+                } catch (err) {
+                    console.error('Error deleting file:', err);
+                    alert('Error deleting file');
+                }
+            } else {
+                alert('No file selected to delete.');
+            }
+        }
+
+        async function getEntries(dirHandle) {
+            const entries = [];
+            for await (const entry of dirHandle.values()) {
+                entries.push(entry);
+            }
+            return entries;
+        }
+
+        async function handlePaste(event) {
+            const items = (event.clipboardData || event.originalEvent.clipboardData).items;
+
+            for (const item of items) {
+                if (item.type.indexOf('image') !== -1) {
+                    const file = item.getAsFile();
+                    await handlePastedImage(file);
+                }
+            }
+        }
+
+     async function handlePastedImage(file) {
+    if (currentFolderHandle) {
+        try {
+            // Generate a unique identifier for the image
+            const uniqueIdentifier = Date.now();
+            const imageName = `image_${uniqueIdentifier}_${file.name}`;
+
+            // Save the image file to the current folder
+            const imageFileHandle = await currentFolderHandle.getFileHandle(imageName, { create: true });
+            const imageWritable = await imageFileHandle.createWritable();
+            await imageWritable.write(file);
+            await imageWritable.close();
+
+            // Append a markdown-style link with the unique identifier to the content
+            const imageUrl = URL.createObjectURL(file);
+            const markdownLink = `[${file.name}](${imageName})`;
+            insertTextAtCaret(markdownLink);
+
+            alert('Image pasted and saved successfully');
+        } catch (err) {
+            console.error('Error pasting image:', err);
+            alert('Error pasting image');
+        }
+    } else {
+        alert('No folder selected to paste the image.');
+    }
+}
+
+function insertTextAtCaret(text) {
+    const selection = window.getSelection();
+    const range = selection.getRangeAt(0);
+    range.deleteContents();
+    range.insertNode(document.createTextNode(text));
+}
+
+        function clearPreviewContainer() {
+            previewContainer.innerHTML = '';
+        }
+
+        function updateBreadcrumb() {
+            const breadcrumb = document.getElementById('breadcrumb');
+            breadcrumb.innerHTML = '';
+            folderHistory.forEach(folderHandle => {
+                const breadcrumbItem = createBreadcrumbItem(folderHandle.name);
+                breadcrumbItem.onclick = () => {
+                    currentFolderHandle = folderHandle;
+                    displayFilesAndFolders(folderHandle);
+                };
+                breadcrumb.appendChild(breadcrumbItem);
+            });
+
+            if (currentFolderHandle) {
+                const currentFolderItem = createBreadcrumbItem(currentFolderHandle.name);
+                breadcrumb.appendChild(currentFolderItem);
+            }
+        }
+
+        function createBreadcrumbItem(name) {
+            const breadcrumbItem = document.createElement('span');
+            breadcrumbItem.textContent = name;
+            breadcrumbItem.classList.add('breadcrumb-item');
+            return breadcrumbItem;
+        }
+    </script>
+</body>
+</html>
